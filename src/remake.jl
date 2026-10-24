@@ -1851,7 +1851,20 @@ end
 function fill_vars(
         prob, varmap; defs = nothing, use_defaults = false, allsyms, index_function
     )
-    idx_to_vsym = anydict(index_function(prob, sym) => sym for sym in allsyms)
+    idx_to_vsym = anydict()
+    for sym in allsyms
+        idx = index_function(prob, sym)
+        idx isa AbstractArray && continue
+        idx_to_vsym[idx] = sym
+    end
+    # An array symbol is indexed by a collection of indices; map each index to its element.
+    for sym in allsyms
+        idx = index_function(prob, sym)
+        idx isa AbstractArray || continue
+        for (ii, elem) in zip(vec(idx), vec(collect(sym)))
+            get!(idx_to_vsym, ii, elem)
+        end
+    end
     sym_to_idx = anydict()
     idx_to_sym = anydict()
     idx_to_val = anydict()
@@ -1878,6 +1891,17 @@ function fill_vars(
     for sym in allsyms
         haskey(sym_to_idx, sym) && continue
         idx = index_function(prob, sym)
+        if idx isa AbstractArray && any(Base.Fix1(haskey, idx_to_val), idx) &&
+                !haskey(idx_to_val, idx)
+            # Only some elements of an array symbol were provided; keep the rest as is.
+            curval = getsym(prob, sym)(prob)
+            for (jj, ii) in enumerate(vec(idx))
+                haskey(idx_to_val, ii) && continue
+                idx_to_sym[ii] = idx_to_vsym[ii]
+                idx_to_val[ii] = vec(curval)[jj]
+            end
+            continue
+        end
         haskey(idx_to_val, idx) && continue
         sym_to_idx[sym] = idx
         idx_to_sym[idx] = sym
