@@ -1851,16 +1851,17 @@ end
 function fill_vars(
         prob, varmap; defs = nothing, use_defaults = false, allsyms, index_function
     )
+    isarraysym(sym, idx) = idx isa AbstractArray && symbolic_type(sym) == ArraySymbolic()
     idx_to_vsym = anydict()
     for sym in allsyms
         idx = index_function(prob, sym)
-        idx isa AbstractArray && continue
+        isarraysym(sym, idx) && continue
         idx_to_vsym[idx] = sym
     end
     # An array symbol is indexed by a collection of indices; map each index to its element.
     for sym in allsyms
         idx = index_function(prob, sym)
-        idx isa AbstractArray || continue
+        isarraysym(sym, idx) || continue
         for (ii, elem) in zip(vec(idx), vec(collect(sym)))
             get!(idx_to_vsym, ii, elem)
         end
@@ -1891,27 +1892,28 @@ function fill_vars(
     for sym in allsyms
         haskey(sym_to_idx, sym) && continue
         idx = index_function(prob, sym)
-        if idx isa AbstractArray && any(Base.Fix1(haskey, idx_to_val), idx) &&
-                !haskey(idx_to_val, idx)
-            # Only some elements of an array symbol were provided; keep the rest as is.
-            curval = getsym(prob, sym)(prob)
-            for (jj, ii) in enumerate(vec(idx))
-                haskey(idx_to_val, ii) && continue
-                idx_to_sym[ii] = idx_to_vsym[ii]
-                idx_to_val[ii] = vec(curval)[jj]
-            end
-            continue
-        end
-        haskey(idx_to_val, idx) && continue
-        sym_to_idx[sym] = idx
-        idx_to_sym[idx] = sym
-        idx_to_val[idx] = if defs !== nothing &&
+        partial = isarraysym(sym, idx) && any(Base.Fix1(haskey, idx_to_val), idx) &&
+            !haskey(idx_to_val, idx)
+        (partial || !haskey(idx_to_val, idx)) || continue
+        val = if defs !== nothing &&
                 (defval = varmap_get(defs, sym)) !== nothing &&
                 (symbolic_type(defval) != NotSymbolic() || use_defaults)
             defval
         else
             getsym(prob, sym)(prob)
         end
+        if partial
+            # Only some elements of an array symbol were provided; resolve the rest.
+            for (jj, ii) in enumerate(vec(idx))
+                haskey(idx_to_val, ii) && continue
+                idx_to_sym[ii] = idx_to_vsym[ii]
+                idx_to_val[ii] = val[jj]
+            end
+            continue
+        end
+        sym_to_idx[sym] = idx
+        idx_to_sym[idx] = sym
+        idx_to_val[idx] = val
     end
     newvals = anydict()
     for (idx, val) in idx_to_val

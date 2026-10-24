@@ -1054,11 +1054,12 @@ end
     Base.getindex(a::ArrSym, i::Int) = ElemSym(a, i)
     struct ArrSys
         u::ArrSym
+        defs::Dict{Any, Any}
     end
     SymbolicIndexingInterface.symbolic_container(s::ArrSys) = s
     SymbolicIndexingInterface.variable_symbols(s::ArrSys) = [s.u]
     SymbolicIndexingInterface.parameter_symbols(::ArrSys) = []
-    SymbolicIndexingInterface.default_values(::ArrSys) = Dict()
+    SymbolicIndexingInterface.default_values(s::ArrSys) = s.defs
     SymbolicIndexingInterface.is_variable(s::ArrSys, x::ArrSym) = x == s.u
     SymbolicIndexingInterface.is_variable(s::ArrSys, x::ElemSym) = x.arr == s.u
     SymbolicIndexingInterface.variable_index(s::ArrSys, x::ArrSym) = x == s.u ? (1:x.n) : nothing
@@ -1069,11 +1070,21 @@ end
     SymbolicIndexingInterface.constant_structure(::ArrSys) = true
 
     u = ArrSym(:u, 6)
-    sys = ArrSys(u)
+    sys = ArrSys(u, Dict{Any, Any}(u => fill(9.0, 6)))
     prob = ODEProblem(ODEFunction((du, u, p, t) -> du .= u; sys), collect(1.0:6.0), (0.0, 1.0))
     vals = collect(10.0:15.0)
     @test remake(prob; u0 = [u => vals]).u0 == vals
     newprob = remake(prob; u0 = [u[5] => 0.3])
     @test newprob.u0 == [1.0, 2.0, 3.0, 4.0, 0.3, 6.0]
     @test remake(prob; u0 = [u[2] => 0.1, u[5] => 0.3]).u0 == [1.0, 0.1, 3.0, 4.0, 0.3, 6.0]
+    @test remake(prob; u0 = [u[5] => 0.3], use_defaults = true).u0 ==
+        [9.0, 9.0, 9.0, 9.0, 0.3, 9.0]
+end
+
+@testset "remake with a non-symbolic array-indexed symbol" begin
+    sys = SymbolCache([:x], Dict(:a => 1:2, :b => 3), :t)
+    prob = ODEProblem(
+        ODEFunction((du, u, p, t) -> du .= u; sys), [1.0], (0.0, 1.0), [2.0, 3.0, 4.0]
+    )
+    @test remake(prob; p = [:b => 5.0]).p == [2.0, 3.0, 5.0]
 end
